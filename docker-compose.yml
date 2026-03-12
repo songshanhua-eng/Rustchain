@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  # k6 - Load testing
+  k6:
+    image: grafana/k6:latest
+    working_dir: /tests
+    volumes:
+      - ./k6:/tests
+      - ./results:/results
+    environment:
+      - RUSTCHAIN_API_URL=${RUSTCHAIN_API_URL:-https://50.28.86.131}
+    command: run scenarios.js
+    networks:
+      - load-test
+
+  # Locust - Load testing
+  locust-master:
+    image: locustio/locust:latest
+    ports:
+      - "8089:8089"
+    volumes:
+      - ./locust:/mnt/locust
+    environment:
+      - RUSTCHAIN_API_URL=${RUSTCHAIN_API_URL:-https://50.28.86.131}
+    command: -f /mnt/locust/locustfile.py --master
+    networks:
+      - load-test
+
+  locust-worker:
+    image: locustio/locust:latest
+    volumes:
+      - ./locust:/mnt/locust
+    environment:
+      - RUSTCHAIN_API_URL=${RUSTCHAIN_API_URL:-https://50.28.86.131}
+    command: -f /mnt/locust/locustfile.py --worker --master-host locust-master
+    depends_on:
+      - locust-master
+    networks:
+      - load-test
+
+  # Prometheus - Metrics storage
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./grafana/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    networks:
+      - load-test
+
+  # Grafana - Visualization
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./grafana/dashboard.json:/var/lib/grafana/dashboards/rustchain.json
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - load-test
+
+networks:
+  load-test:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:
